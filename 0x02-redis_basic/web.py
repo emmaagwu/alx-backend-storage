@@ -1,78 +1,38 @@
 #!/usr/bin/env python3
-""" This module fetches and caches web pages with access tracking """
-import requests
+'''A module with tools for request caching and tracking.
+'''
 import redis
+import requests
 from functools import wraps
 from typing import Callable
 
 
-def cache_result(expiration: int = 10) -> Callable:
-    """
-    Decorator to cache the result of a function call in Redis.
-
-    Args:
-        expiration (int): The expiration time of the cache in seconds.
-
-    Returns:
-        Callable: The decorated function.
-    """
-    def decorator(method: Callable) -> Callable:
-        @wraps(method)
-        def wrapper(*args, **kwargs):
-            url = args[0]
-            cache_key = f"cache:{url}"
-            redis_client = redis.Redis()
-
-            # Check if the result is already in the cache
-            cached_result = redis_client.get(cache_key)
-            if cached_result:
-                return cached_result.decode('utf-8')
-
-            # Call the original method to get the result
-            result = method(*args, **kwargs)
-
-            # Store the result in the cache with an expiration time
-            redis_client.setex(cache_key, expiration, result)
-
-            return result
-        return wrapper
-    return decorator
+redis_store = redis.Redis()
+'''The module-level Redis instance.
+'''
 
 
-def track_access(method: Callable) -> Callable:
-    """
-    Decorator to track the number of times a URL is accessed.
-
-    Args:
-        method (Callable): The method to decorate.
-
-    Returns:
-        Callable: The decorated method.
-    """
+def data_cacher(method: Callable) -> Callable:
+    '''Caches the output of fetched data.
+    '''
     @wraps(method)
-    def wrapper(*args, **kwargs):
-        url = args[0]
-        access_key = f"count:{url}"
-        redis_client = redis.Redis()
+    def invoker(url) -> str:
+        '''The wrapper function for caching the output.
+        '''
+        redis_store.incr(f'count:{url}')
+        result = redis_store.get(f'result:{url}')
+        if result:
+            return result.decode('utf-8')
+        result = method(url)
+        redis_store.set(f'count:{url}', 0)
+        redis_store.setex(f'result:{url}', 10, result)
+        return result
+    return invoker
 
-        # Increment the access count for the URL
-        redis_client.incr(access_key)
 
-        return method(*args, **kwargs)
-    return wrapper
-
-
-@cache_result(expiration=10)
-@track_access
+@data_cacher
 def get_page(url: str) -> str:
-    """
-    Get the HTML content of a URL.
-
-    Args:
-        url (str): The URL to fetch.
-
-    Returns:
-        str: The HTML content of the URL.
-    """
-    response = requests.get(url)
-    return response.text
+    '''Returns the content of a URL after caching the request's response,
+    and tracking the request.
+    '''
+    return requests.get(url).text
