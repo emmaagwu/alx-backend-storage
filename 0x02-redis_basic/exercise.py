@@ -21,27 +21,22 @@ def count_calls(method: Callable) -> Callable:
         """
         Wrapper function that increments the call count in Redis.
         """
-        in_key = '{}:inputs'.format(method.__qualname__)
-        out_key = '{}:outputs'.format(method.__qualname__)
         if isinstance(self._redis, redis.Redis):
-            self._redis.rpush(in_key, str(args))
-        output = method(self, *args, **kwargs)
-        if isinstance(self._redis, redis.Redis):
-            self._redis.rpush(out_key, output)
-        return output
+            self._redis.incr(method.__qualname__)
+        return method(self, *args, **kwargs)
     return wrapper
 
 
 class Cache:
     """ This class takes a data argument and returns a string.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the Cache class and flush the Redis database.
         """
 
         self._redis = redis.Redis()
-        self._redis.flushdb()
+        self._redis.flushdb(True)
 
     @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
@@ -58,8 +53,8 @@ class Cache:
         self._redis.set(key, data)
         return key
 
-    def get(self, key: str, fn: Optional[Callable] = None)\
-            -> Optional[Union[str, bytes, int, float]]:
+    def get(self, key: str, fn: Callable = None,)\
+            -> Union[str, bytes, int, float]:
         """
         Retrieve the data from Redis and optionally
             apply a conversion function.
@@ -74,12 +69,9 @@ class Cache:
               data, optionally converted.
         """
         data = self._redis.get(key)
-        if fn is not None:
-            return fn(data)
-        else:
-            return data
+        return fn(data) if fn is not None else data
 
-    def get_str(self, key: str) -> Optional[str]:
+    def get_str(self, key: str) -> str:
         """
         Retrieve the data as a string from Redis.
 
@@ -91,7 +83,7 @@ class Cache:
         """
         return self.get(key, lambda data: data.decode('utf-8'))
 
-    def get_int(self, key: str) -> Optional[int]:
+    def get_int(self, key: str) -> int:
         """
         Retrieve the data as an integer from Redis.
 
