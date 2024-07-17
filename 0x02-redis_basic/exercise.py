@@ -2,7 +2,34 @@
 """ This module writes string to Redis """
 import redis
 import uuid
-from typing import Union, Callable, Optional
+from typing import Union, Callable, Optional, Any
+from functools import wraps
+
+
+def count_calls(method: Callable) -> Callable:
+    """
+    Decorator to count the number of calls to a method.
+
+    Args:
+        method (Callable): The method to decorate.
+
+    Returns:
+        Callable: The decorated method.
+    """
+    @wraps(method)
+    def wrapper(self, *args, **kwargs) -> Any:
+        """
+        Wrapper function that increments the call count in Redis.
+        """
+        in_key = '{}:inputs'.format(method.__qualname__)
+        out_key = '{}:outputs'.format(method.__qualname__)
+        if isinstance(self._redis, redis.Redis):
+            self._redis.rpush(in_key, str(args))
+        output = method(self, *args, **kwargs)
+        if isinstance(self._redis, redis.Redis):
+            self._redis.rpush(out_key, output)
+        return output
+    return wrapper
 
 
 class Cache:
@@ -16,6 +43,7 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
         Store the data in Redis with a randomly generated key.
@@ -46,11 +74,10 @@ class Cache:
               data, optionally converted.
         """
         data = self._redis.get(key)
-        if data is None:
-            return None
         if fn is not None:
             return fn(data)
-        return data
+        else:
+            return data
 
     def get_str(self, key: str) -> Optional[str]:
         """
